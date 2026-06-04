@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: BKUS Operations API
+  description: >
+    Health check and model reload endpoints for the BKUS hospital system.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Service health check
+      description: >
+        Returns the overall service health status including scheduling
+        database connectivity. Does NOT require authentication.
+      operationId: healthCheck
+      tags: [Operations]
+      security: []
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "healthy"
+                scheduling_db: "connected"
+                pool_size: 10
+        "503":
+          description: >
+            Service is degraded — scheduling database is disconnected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "degraded"
+                scheduling_db: "disconnected"
+                error: "connection refused"
+
+  /reload:
+    post:
+      summary: Reload model, day-time interactions, and coordinates
+      description: >
+        Reloads the PyCaret prediction model from disk, refreshes
+        day-time interaction profiles, and re-parses the coordinates
+        lookup table. Use after a training job completes.
+      operationId: reloadModel
+      tags: [Operations]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: All resources reloaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReloadResponse"
+              example:
+                message: "Model, day-time interactions, and coordinates reloaded"
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "500":
+          description: Reload failed (e.g. model file not found).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Main API token passed via Authorization header.
+        Configure with the MAIN_API_TOKEN environment variable.
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, scheduling_db]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+          description: Overall service status.
+          example: "healthy"
+        scheduling_db:
+          type: string
+          enum: [connected, disconnected]
+          description: Scheduling database connection status.
+          example: "connected"
+        pool_size:
+          type: integer
+          nullable: true
+          description: >
+            Number of connections in the database pool.
+            Present only when the DB is connected.
+          example: 10
+        pool_available:
+          type: integer
+          nullable: true
+          description: >
+            Number of available connections in the pool.
+            Present only when the DB is connected.
+        error:
+          type: string
+          nullable: true
+          description: >
+            Error message when the service is degraded.
+            Omitted when healthy.
+
+    ReloadResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Confirmation message.
+          example: "Model, day-time interactions, and coordinates reloaded"
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message.

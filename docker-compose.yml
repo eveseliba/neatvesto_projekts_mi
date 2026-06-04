@@ -1,0 +1,87 @@
+version: '3.8'
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ml-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - shared-data:/shared
+      - ./latvian_places_with_coordinates_v2.sql:/shared/latvian_places_with_coordinates_v2.sql:ro
+    environment:
+      - MODEL_DIR=/shared
+      - MODEL_BASENAME=model
+      - STATUS_PATH=/shared/status.json
+      - PYTHONUNBUFFERED=1
+      - SCHEDULING_DB_HOST=${SCHEDULING_DB_HOST:-}
+      - SCHEDULING_DB_PORT=${SCHEDULING_DB_PORT:-}
+      - SCHEDULING_DB_NAME=${SCHEDULING_DB_NAME:-}
+      - SCHEDULING_DB_USER=${SCHEDULING_DB_USER:-}
+      - SCHEDULING_DB_PASSWORD=${SCHEDULING_DB_PASSWORD:-}
+      - MAIN_API_TOKEN=${MAIN_API_TOKEN}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: ml-worker
+    volumes:
+      - shared-data:/shared
+      - ./latvian_places_with_coordinates_v2.sql:/shared/latvian_places_with_coordinates_v2.sql:ro
+    environment:
+      - MODEL_DIR=/shared
+      - MODEL_BASENAME=model
+      - POLL_INTERVAL=60.0
+      - STATUS_PATH=/shared/status.json
+      - PYTHONUNBUFFERED=1
+      - EXPORT_WINDOW_MONTHS=${EXPORT_WINDOW_MONTHS:-8}
+      - SCHEDULING_DB_HOST=${SCHEDULING_DB_HOST:-}
+      - SCHEDULING_DB_PORT=${SCHEDULING_DB_PORT:-}
+      - SCHEDULING_DB_NAME=${SCHEDULING_DB_NAME:-}
+      - SCHEDULING_DB_USER=${SCHEDULING_DB_USER:-}
+      - SCHEDULING_DB_PASSWORD=${SCHEDULING_DB_PASSWORD:-}
+    restart: unless-stopped
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+        reservations:
+          cpus: '4'
+    # Set CPUs based on your machine params
+
+  distance:
+    build:
+      context: .
+      dockerfile: Dockerfile.distance
+    container_name: ml-distance
+    ports:
+      - "8001:8001"
+    volumes:
+      - shared-data:/shared
+      - ./latvian_places_with_coordinates_v2.sql:/shared/latvian_places_with_coordinates_v2.sql:ro
+    environment:
+      - MODEL_DIR=/shared
+      - DISTANCE_API_TOKEN=${DISTANCE_API_TOKEN}
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  shared-data:
+    driver: local

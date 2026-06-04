@@ -1,0 +1,12 @@
+{
+  "job_id": null,
+  "csv_path": "training.csv",
+  "target": "appointment_attended",
+  "processing": null,
+  "done": null,
+  "reloaded": null,
+  "stage": null,
+  "error": null,
+  "claimed_by": null,
+  "rev": 0
+}

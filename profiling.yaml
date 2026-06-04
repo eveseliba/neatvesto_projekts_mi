@@ -1,0 +1,335 @@
+openapi: 3.0.3
+info:
+  title: BKUS Profiling API
+  description: >
+    Patient profiling endpoints for the BKUS hospital system.
+    Returns day × time-window attendance recommendations based on
+    patient age, distance to hospital, and historical visit patterns.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /profile:
+    post:
+      summary: Get patient profile recommendations
+      description: >
+        Resolves the patient's profile bucket (age group × distance group)
+        and returns ranked day × time-window cells with attendance rates.
+        Distance is calculated server-side from patient_address + hospital_id
+        using the in-memory coordinates lookup. If the address is unknown,
+        Nominatim geocoding is called in real-time.
+      operationId: getProfile
+      tags: [Profiling]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileRequest"
+            example:
+              patient_age: 7
+              patient_address: "Rīga, Brīvības iela 1"
+              hospital_id: 1
+      responses:
+        "200":
+          description: Profile recommendations computed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+              example:
+                profile_key: "0_6_0-10km"
+                distance_km: 5.3
+                recommendations:
+                  - day_of_week: 0
+                    day_name: "Monday"
+                    window: "08:00-10:00"
+                    hours: [8, 9]
+                    rate: 0.85
+                    ci_lower: 0.78
+                    ci_upper: 0.92
+                    composite_score: 0.88
+                    n: 120
+                    attended: 102
+                    low_sample: false
+                    lift: 1.15
+                    tier_ci: 1
+                    rank: 1
+                    tier: 1
+        "400":
+          description: Unknown hospital ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "422":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "503":
+          description: >
+            Day-time interactions not loaded. Run the training pipeline first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+
+  /profiles:
+    get:
+      summary: List all patient profiles
+      description: >
+        Returns the complete day-time interaction dataset — a dictionary
+        keyed by profile key (e.g. "0_6_0-10km") with arrays of
+        ranked day × time-window cells.
+      operationId: listProfiles
+      tags: [Profiling]
+      responses:
+        "200":
+          description: All profiles returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DayTimeCell"
+                description: >
+                  Dictionary keyed by profile key (age_group × distance_group).
+                  Each value is an array of ranked DayTimeCell objects.
+              example:
+                "0_6_0-10km":
+                  - day_of_week: 0
+                    day_name: "Monday"
+                    window: "08:00-10:00"
+                    hours: [8, 9]
+                    rate: 0.85
+                    ci_lower: 0.78
+                    ci_upper: 0.92
+                    composite_score: 0.88
+                    n: 120
+                    attended: 102
+                    low_sample: false
+                    lift: 1.15
+                    tier_ci: 1
+                    rank: 1
+                    tier: 1
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "503":
+          description: >
+            Day-time interactions not loaded. Run the training pipeline first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Main API token passed via Authorization header.
+        Configure with the MAIN_API_TOKEN environment variable.
+
+  schemas:
+    ProfileRequest:
+      type: object
+      required: [patient_age, patient_address, hospital_id]
+      properties:
+        patient_age:
+          type: integer
+          description: Patient age in years.
+          example: 7
+        patient_address:
+          type: string
+          description: >
+            Patient home address. Used for distance calculation to the
+            target hospital via in-memory lookup or Nominatim geocoding.
+          example: "Rīga, Brīvības iela 1"
+        hospital_id:
+          type: integer
+          description: >
+            Target hospital ID (1=Torņakalns, 2=Gaiļezers, 4=Rehab,
+            6=Daugavpils, 8=Valmiera).
+          example: 1
+    ProfileResponse:
+      type: object
+      required: [profile_key, distance_km, recommendations]
+      properties:
+        profile_key:
+          type: string
+          description: >
+            Resolved profile bucket key describing the patient's
+            age group × distance group (e.g. "0_6_0-10km").
+          example: "0_6_0-10km"
+        distance_km:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Calculated distance from patient address to hospital in
+            kilometres. Null if geocoding failed.
+          example: 5.3
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DayTimeCell"
+          description: >
+            Ranked day × time-window cells for the patient's profile,
+            sorted by composite score (descending).
+
+    DayTimeCell:
+      type: object
+      required:
+        - day_of_week
+        - day_name
+        - window
+        - hours
+        - rate
+        - ci_lower
+        - ci_upper
+        - composite_score
+        - n
+        - attended
+        - low_sample
+        - lift
+        - tier_ci
+        - rank
+        - tier
+      properties:
+        day_of_week:
+          type: integer
+          description: Day of week (0=Monday, 6=Sunday).
+          example: 0
+        day_name:
+          type: string
+          description: Human-readable day name.
+          example: "Monday"
+        window:
+          type: string
+          description: Time window label (e.g. "08:00-10:00").
+          example: "08:00-10:00"
+        hours:
+          type: array
+          items:
+            type: integer
+          description: List of hour values in this window.
+          example: [8, 9]
+        rate:
+          type: number
+          format: float
+          description: Attendance rate for this day × window combination.
+          example: 0.85
+        ci_lower:
+          type: number
+          format: float
+          description: Wilson confidence interval lower bound.
+          example: 0.78
+        ci_upper:
+          type: number
+          format: float
+          description: Wilson confidence interval upper bound.
+          example: 0.92
+        composite_score:
+          type: number
+          format: float
+          description: >
+            Combined scoring metric (rate × CI width penalty × lift).
+          example: 0.88
+        n:
+          type: integer
+          description: Sample size (total appointments in this cell).
+          example: 120
+        attended:
+          type: integer
+          description: Number of attended appointments.
+          example: 102
+        low_sample:
+          type: boolean
+          description: >
+            Whether the sample size is below the significance threshold.
+          example: false
+        lift:
+          type: number
+          format: float
+          description: >
+            Lift metric — ratio of this cell's rate to the profile's
+            overall average rate.
+          example: 1.15
+        tier_ci:
+          type: integer
+          description: >
+            Confidence tier based on CI width (1=narrow/best,
+            2=moderate, 3=wide/least certain).
+          example: 1
+        rank:
+          type: integer
+          description: Rank within the patient's profile (1 = best).
+          example: 1
+        tier:
+          type: integer
+          description: >
+            Overall tier level combining rate and confidence
+            (1=best, 5=worst).
+          example: 1
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message.
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: JSON path to the invalid field.
+              msg:
+                type: string
+                description: Human-readable error message.
+              type:
+                type: string
+                description: Error type code.

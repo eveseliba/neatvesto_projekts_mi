@@ -1,0 +1,184 @@
+openapi: 3.0.3
+info:
+  title: BKUS Distance Service
+  description: >
+    Distance calculation microservice for the BKUS hospital system.
+    Calculates the distance from a patient's address to a hospital
+    using a local coordinates lookup with Nominatim geocoding fallback.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Service health check
+      description: >
+        Returns the service health status. Does NOT require authentication.
+      operationId: healthCheck
+      tags: [Operations]
+      security: []
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "ok"
+
+  /distance:
+    post:
+      summary: Calculate distance from patient address to hospital
+      description: >
+        Resolves the patient's address to coordinates using a local lookup
+        table (latvian_places_with_coordinates_v2.sql). If the address is
+        not found locally, falls back to Nominatim geocoding. Returns the
+        haversine distance in kilometres to the specified hospital.
+      operationId: calculateDistance
+      tags: [Distance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DistanceRequest"
+            example:
+              patient_address: "Riga"
+              hospital_id: 1
+      responses:
+        "200":
+          description: Distance calculated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistanceResponse"
+              example:
+                distance_km: 5.432
+                hospital_id: 1
+                hospital_name: "Torņakalns"
+        "400":
+          description: >
+            Unknown hospital_id. The response includes the list of valid IDs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+              example:
+                detail: "Unknown hospital_id: 99. Valid IDs: [1, 2, 4, 6, 8]"
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "404":
+          description: >
+            Could not resolve the patient address via local lookup or
+            Nominatim geocoding.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+              example:
+                detail: "Could not resolve address: 'Unknown Place'"
+        "422":
+          description: Validation error (missing or invalid fields).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Distance API token passed via Authorization header.
+        Configure with the DISTANCE_API_TOKEN environment variable.
+
+  schemas:
+    DistanceRequest:
+      type: object
+      required: [patient_address, hospital_id]
+      properties:
+        patient_address:
+          type: string
+          description: Patient home address to geocode.
+          example: "Riga"
+        hospital_id:
+          type: integer
+          description: >
+            Target hospital ID. Valid values: 1 (Torņakalns),
+            2 (Gaiļezers), 4 (Rehabilitācija Gaiļezerā),
+            6 (Daugavpils), 8 (Valmiera).
+          example: 1
+
+    DistanceResponse:
+      type: object
+      required: [distance_km, hospital_id, hospital_name]
+      properties:
+        distance_km:
+          type: number
+          format: float
+          description: Haversine distance in kilometres.
+          example: 5.432
+        hospital_id:
+          type: integer
+          description: Echo of the requested hospital ID.
+          example: 1
+        hospital_name:
+          type: string
+          description: Human-readable hospital / facility name.
+          example: "Torņakalns"
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: Service status.
+          example: "ok"
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message.
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: JSON path to the invalid field.
+              msg:
+                type: string
+                description: Human-readable error message.
+              type:
+                type: string
+                description: Error type code.

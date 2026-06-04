@@ -1,0 +1,224 @@
+openapi: 3.0.3
+info:
+  title: BKUS Training API
+  description: >
+    Training pipeline and job management endpoints for the BKUS hospital
+    system. Allows triggering model training and monitoring job progress.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /train:
+    post:
+      summary: Trigger a new training job
+      description: >
+        Queues a new model training job. Only one training job can run
+        at a time — returns 409 if a job is already in progress.
+        The job is processed asynchronously by a background worker.
+      operationId: train
+      tags: [Training]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrainRequest"
+            example:
+              csv_path: null
+              target_column: null
+      responses:
+        "202":
+          description: Training job queued successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrainResponse"
+              example:
+                message: "Training started"
+                job_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "409":
+          description: A training job is already in progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "422":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+
+  /jobs:
+    get:
+      summary: Get current training job status
+      description: >
+        Returns the current state of the training pipeline, including
+        job ID, processing stage, timestamps, and any error details.
+      operationId: jobStatus
+      tags: [Training]
+      responses:
+        "200":
+          description: Current job status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+              example:
+                job_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                csv_path: null
+                target: null
+                processing: "2026-03-05T10:30:00Z"
+                done: "2026-03-05T10:45:00Z"
+                reloaded: "2026-03-05T10:45:05Z"
+                stage: "done"
+                error: null
+                claimed_by: "worker-1"
+                rev: 5
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Main API token passed via Authorization header.
+        Configure with the MAIN_API_TOKEN environment variable.
+
+  schemas:
+    TrainRequest:
+      type: object
+      properties:
+        csv_path:
+          type: string
+          nullable: true
+          description: >
+            Optional path to training CSV. When null, the worker uses
+            the default data source.
+        target_column:
+          type: string
+          nullable: true
+          description: >
+            Optional target column name. When null, the worker uses
+            the default target.
+
+    TrainResponse:
+      type: object
+      required: [message, job_id]
+      properties:
+        message:
+          type: string
+          description: Confirmation message.
+          example: "Training started"
+        job_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the queued training job.
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+    JobStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+          nullable: true
+          description: UUID of the current or last training job.
+        csv_path:
+          type: string
+          nullable: true
+          description: CSV path used for training.
+        target:
+          type: string
+          nullable: true
+          description: Target column used for training.
+        processing:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp when the job started processing.
+        done:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp when the job completed.
+        reloaded:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp when the model was last reloaded.
+        stage:
+          type: string
+          nullable: true
+          description: >
+            Current pipeline stage (e.g. "queued", "preprocessing",
+            "training", "done").
+        error:
+          type: string
+          nullable: true
+          description: Error message if the job failed.
+        claimed_by:
+          type: string
+          nullable: true
+          description: Worker ID that claimed the job.
+        rev:
+          type: integer
+          description: State revision counter (incremented on each update).
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message.
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: JSON path to the invalid field.
+              msg:
+                type: string
+                description: Human-readable error message.
+              type:
+                type: string
+                description: Error type code.

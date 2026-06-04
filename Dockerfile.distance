@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.distance.txt .
+RUN pip install --no-cache-dir -r requirements.distance.txt
+
+COPY distance_service.py .
+COPY shared/ shared/
+
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8001
+CMD ["python", "distance_service.py"]

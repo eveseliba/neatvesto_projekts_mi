@@ -1,0 +1,18 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "dbname": "bkus",
+  "user": "postgres",
+  "password": "postgres",
+  "minconn": 2,
+  "maxconn": 10,
+  "statement_timeout_ms": 5000,
+  "search_months": 4,
+  "max_slots_per_query": 5000,
+  "tables": {
+    "slots": "saule.vizisu_laiki",
+    "visits_history": [
+      "saule.vizites"
+    ]
+  }
+}

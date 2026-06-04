@@ -1,0 +1,205 @@
+openapi: 3.0.3
+info:
+  title: BKUS Prediction API
+  description: >
+    No-show prediction endpoint for the BKUS hospital system.
+    Uses a PyCaret classification model to predict whether a patient
+    will attend a scheduled appointment.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+paths:
+  /predict:
+    post:
+      summary: Predict appointment no-show probability
+      description: >
+        Accepts appointment and patient features, runs the loaded PyCaret
+        classification model, and returns a binary prediction with a
+        confidence score.
+      operationId: predict
+      tags: [Prediction]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PredictionFeature"
+            example:
+              appointment_date: "2026-03-15"
+              appointment_date_registration: "2026-03-01"
+              chronic_patient: false
+              patient_birth_year: 2019
+              distance_to_appointment_km: 12.5
+              appointment_time_hour: 9
+              appointment_type: "first"
+              doctor_type_id: 3
+              service: "pediatrics"
+              is_repeated_patient: 1
+              past_appointments_count: 5
+              past_missed_appointments: 1
+      responses:
+        "200":
+          description: Prediction computed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PredictionResponse"
+              example:
+                prediction: 1
+                prediction_score: 0.87
+        "401":
+          description: Invalid or missing Bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "403":
+          description: Authorization header not provided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+        "422":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationError"
+        "503":
+          description: >
+            Model not loaded. Run the training pipeline and call
+            POST /reload first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDetail"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Main API token passed via Authorization header.
+        Configure with the MAIN_API_TOKEN environment variable.
+
+  schemas:
+    PredictionFeature:
+      type: object
+      required:
+        - appointment_date
+        - appointment_date_registration
+        - chronic_patient
+        - patient_birth_year
+        - distance_to_appointment_km
+        - appointment_time_hour
+        - appointment_type
+        - doctor_type_id
+        - service
+        - is_repeated_patient
+        - past_appointments_count
+        - past_missed_appointments
+      properties:
+        appointment_date:
+          type: string
+          format: date
+          description: Scheduled appointment date (YYYY-MM-DD).
+          example: "2026-03-15"
+        appointment_date_registration:
+          type: string
+          format: date
+          description: Date the appointment was registered (YYYY-MM-DD).
+          example: "2026-03-01"
+        chronic_patient:
+          type: boolean
+          description: Whether the patient has a chronic condition.
+          example: false
+        patient_birth_year:
+          type: integer
+          description: Patient birth year.
+          example: 2019
+        distance_to_appointment_km:
+          type: number
+          format: float
+          description: Distance from patient address to hospital in kilometres.
+          example: 12.5
+        appointment_time_hour:
+          type: integer
+          description: Hour of the appointment (0-23).
+          example: 9
+        appointment_type:
+          type: string
+          description: Appointment type code (e.g. "first", "repeated").
+          example: "first"
+        doctor_type_id:
+          type: integer
+          description: Doctor specialty type ID.
+          example: 3
+        service:
+          type: string
+          description: Service name or code.
+          example: "pediatrics"
+        is_repeated_patient:
+          type: integer
+          description: Whether the patient has visited before (0 or 1).
+          example: 1
+        past_appointments_count:
+          type: integer
+          description: Total number of past appointments for this patient.
+          example: 5
+        past_missed_appointments:
+          type: integer
+          description: Number of past missed appointments.
+          example: 1
+
+    PredictionResponse:
+      type: object
+      required: [prediction, prediction_score]
+      properties:
+        prediction:
+          type: integer
+          description: >
+            Binary prediction: 1 = patient will attend, 0 = patient will
+            not attend.
+          example: 1
+        prediction_score:
+          type: number
+          format: float
+          description: >
+            Model confidence score (0.0–1.0) for the predicted class.
+          example: 0.87
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Human-readable error message.
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: JSON path to the invalid field.
+              msg:
+                type: string
+                description: Human-readable error message.
+              type:
+                type: string
+                description: Error type code.
